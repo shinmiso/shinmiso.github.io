@@ -15,6 +15,7 @@
     canvas { display: block; width: 100%; height: auto; touch-action: manipulation; }
     .hud { position: absolute; inset: 12px 14px auto; display: flex; justify-content: space-between; align-items: center; pointer-events: none; font-weight: 800; text-shadow: 0 1px #fff; }
     .score { font-size: 1.4rem; }
+    .lives { color: #e34a57; white-space: nowrap; }
     .status { min-height: 1.5em; font-size: .95rem; }
     button { border: 0; border-radius: 999px; padding: 11px 22px; background: #ffb833; color: #412b00; font: inherit; font-weight: 800; cursor: pointer; box-shadow: 0 4px 0 #dc8f12; }
     button:hover { filter: brightness(1.04); }
@@ -29,17 +30,18 @@
     <p class="help">스페이스바를 눌러 날아오르고, 파이프 사이를 통과하세요!</p>
     <div class="game-wrap">
       <canvas id="game" width="520" height="620" aria-label="장애물을 피하는 Flappy Buddy 게임"></canvas>
-      <div class="hud"><span class="score">점수 <span id="score">0</span></span><span id="best">최고 0</span></div>
+      <div class="hud"><span class="score">점수 <span id="score">0</span></span><span class="lives" aria-label="남은 생명">생명 <span id="lives">❤️❤️❤️</span></span><span id="best">최고 0</span></div>
     </div>
     <p class="status" id="status" aria-live="polite">스페이스바를 눌러 시작하세요</p>
     <div class="actions"><button id="restart" type="button">다시 시작</button></div>
-    <footer>조작: 스페이스바 또는 화면 클릭 · 장애물 하나를 통과하면 1점</footer>
+    <footer>조작: 스페이스바 또는 화면 클릭 · 장애물 통과마다 1점 · 생명 3개</footer>
   </main>
   <script>
     (() => {
       const canvas = document.querySelector('#game');
       const ctx = canvas.getContext('2d');
       const scoreEl = document.querySelector('#score');
+      const livesEl = document.querySelector('#lives');
       const bestEl = document.querySelector('#best');
       const statusEl = document.querySelector('#status');
       const W = canvas.width, H = canvas.height;
@@ -47,15 +49,16 @@
       const bird = { x: 125, y: 260, r: 17, vy: 0 };
       const gravity = 0.34, flapPower = -6.5;
       const pipeWidth = 66, gap = 170, pipeSpeed = 2.5;
-      let pipes = [], score = 0, state = 'ready', frame = 0;
+      let pipes = [], score = 0, lives = 3, state = 'ready', frame = 0;
       let best = Number(localStorage.getItem('flappyBuddyBest') || 0);
       bestEl.textContent = `최고 ${best}`;
 
       function setScore(value) { score = value; scoreEl.textContent = String(score); }
+      function setLives(value) { lives = value; livesEl.textContent = '❤️'.repeat(lives) || '없음'; }
       function reset() {
         bird.y = 260; bird.vy = 0;
         pipes = [{ x: W + 40, gapY: 205, scored: false }];
-        setScore(0); frame = 0; state = 'ready';
+        setScore(0); setLives(3); frame = 0; state = 'ready';
         statusEl.textContent = '스페이스바를 눌러 시작하세요';
         draw();
       }
@@ -66,8 +69,13 @@
       }
       function endGame() {
         if (state !== 'playing') return;
-        state = 'over';
-        statusEl.textContent = `게임 종료! ${score}점 · 다시 시작을 눌러 도전하세요`;
+        setLives(lives - 1);
+        bird.y = 260; bird.vy = 0; frame = 0;
+        pipes = [{ x: W + 40, gapY: 205, scored: false }];
+        state = lives === 0 ? 'over' : 'ready';
+        statusEl.textContent = lives === 0
+          ? `게임 종료! ${score}점 · 다시 시작을 눌러 도전하세요`
+          : `충돌! 생명 ${lives}개 남음 · 스페이스바를 눌러 계속하세요`;
       }
       function addPipe() {
         const margin = 82;
