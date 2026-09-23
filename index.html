@@ -34,7 +34,7 @@
     </div>
     <p class="status" id="status" aria-live="polite">스페이스바를 눌러 시작하세요</p>
     <div class="actions"><button id="restart" type="button">다시 시작</button></div>
-    <footer>조작: 스페이스바 또는 화면 클릭 · 장애물 통과마다 1점 · 생명 3개</footer>
+    <footer>조작: 스페이스바 또는 화면 클릭 · 장애물 통과마다 1점 · 충돌 시 0.5초 무적 및 느려짐</footer>
   </main>
   <script>
     (() => {
@@ -50,6 +50,7 @@
       const gravity = 0.34, flapPower = -6.5;
       const pipeWidth = 66, gap = 170, pipeSpeed = 2.5;
       let pipes = [], score = 0, lives = 3, state = 'ready', frame = 0;
+      let invulnerableUntil = 0, slowUntil = 0, hitMessageUntil = 0;
       let best = Number(localStorage.getItem('flappyBuddyBest') || 0);
       bestEl.textContent = `최고 ${best}`;
 
@@ -59,6 +60,7 @@
         bird.y = 260; bird.vy = 0;
         pipes = [{ x: W + 40, gapY: 205, scored: false }];
         setScore(0); setLives(3); frame = 0; state = 'ready';
+        invulnerableUntil = 0; slowUntil = 0; hitMessageUntil = 0;
         statusEl.textContent = '스페이스바를 눌러 시작하세요';
         draw();
       }
@@ -67,15 +69,26 @@
         if (state === 'ready') { state = 'playing'; statusEl.textContent = ''; }
         bird.vy = flapPower;
       }
-      function endGame() {
+      function handleHit(collisionPipe = null) {
         if (state !== 'playing') return;
+        const now = performance.now();
+        if (now < invulnerableUntil) return;
         setLives(lives - 1);
-        bird.y = 260; bird.vy = 0; frame = 0;
-        pipes = [{ x: W + 40, gapY: 205, scored: false }];
-        state = lives === 0 ? 'over' : 'ready';
-        statusEl.textContent = lives === 0
-          ? `게임 종료! ${score}점 · 다시 시작을 눌러 도전하세요`
-          : `충돌! 생명 ${lives}개 남음 · 스페이스바를 눌러 계속하세요`;
+        if (lives === 0) {
+          state = 'over';
+          statusEl.textContent = `게임 종료! ${score}점 · 다시 시작을 눌러 도전하세요`;
+          return;
+        }
+        invulnerableUntil = now + 500;
+        slowUntil = now + 500;
+        hitMessageUntil = now + 1600;
+        bird.vy = 0;
+        if (collisionPipe) {
+          bird.y = collisionPipe.gapY + gap / 2;
+        } else {
+          bird.y = bird.y < H / 2 ? bird.r + 2 : H - groundH - bird.r - 2;
+        }
+        statusEl.textContent = `충돌! 생명 ${lives}개 남음 · 계속 진행 중`;
       }
       function addPipe() {
         const margin = 82;
@@ -110,7 +123,10 @@
         ctx.fillStyle = '#c69350';
         for (let x = -((frame * pipeSpeed) % 34); x < W; x += 34) ctx.fillRect(x, H-groundH+28, 16, 4);
         // Buddy
-        ctx.save(); ctx.translate(bird.x, bird.y); ctx.rotate(Math.max(-.45, Math.min(.65, bird.vy * .055)));
+        const invulnerable = performance.now() < invulnerableUntil;
+        ctx.save();
+        if (invulnerable) ctx.globalAlpha = Math.floor(performance.now() / 70) % 2 ? 0.4 : 1;
+        ctx.translate(bird.x, bird.y); ctx.rotate(Math.max(-.45, Math.min(.65, bird.vy * .055)));
         ctx.fillStyle = '#ffd348'; ctx.beginPath(); ctx.arc(0, 0, bird.r, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = '#ffb52e'; ctx.beginPath(); ctx.ellipse(-7, 5, 10, 6, -.35, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(7, -6, 6, 0, Math.PI*2); ctx.fill();
@@ -120,10 +136,12 @@
       }
       function update() {
         if (state === 'playing') {
-          frame++;
-          bird.vy += gravity; bird.y += bird.vy;
+          const now = performance.now();
+          const timeScale = now < slowUntil ? 0.4 : 1;
+          frame += timeScale;
+          bird.vy += gravity * timeScale; bird.y += bird.vy * timeScale;
           for (const p of pipes) {
-            p.x -= pipeSpeed;
+            p.x -= pipeSpeed * timeScale;
             if (!p.scored && p.x + pipeWidth < bird.x) {
               p.scored = true;
               setScore(score + 1);
@@ -132,11 +150,15 @@
           }
           pipes = pipes.filter(p => p.x + pipeWidth > -10);
           if (pipes.length === 0 || pipes[pipes.length-1].x < W - 230) addPipe();
-          if (bird.y - bird.r < 0 || bird.y + bird.r > H - groundH) endGame();
+          if (bird.y - bird.r < 0 || bird.y + bird.r > H - groundH) handleHit();
           for (const p of pipes) {
             const overlapsX = bird.x + bird.r > p.x && bird.x - bird.r < p.x + pipeWidth;
-            if (overlapsX && (bird.y - bird.r < p.gapY || bird.y + bird.r > p.gapY + gap)) endGame();
+            if (overlapsX && (bird.y - bird.r < p.gapY || bird.y + bird.r > p.gapY + gap)) handleHit(p);
           }
+        }
+        if (hitMessageUntil && performance.now() >= hitMessageUntil) {
+          statusEl.textContent = '';
+          hitMessageUntil = 0;
         }
         draw();
         requestAnimationFrame(update);
